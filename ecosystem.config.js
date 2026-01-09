@@ -3,6 +3,7 @@ module.exports = {
     {
       name: 'bigpump-scanner-bsc',
       script: './ace.js',
+      cwd: '/home/allis/bigpump-chain-indexer',
       args: 'scan:blockchain --chain=bsc',
       instances: 1,
       exec_mode: 'fork',
