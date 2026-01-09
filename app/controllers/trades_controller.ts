@@ -161,7 +161,7 @@ export default class TradesController {
         time_bucket(?, block_timestamp) as time,
         COUNT(*) as trade_count,
         SUM(CASE WHEN side = 1 THEN 1 ELSE 0 END) as buy_count,
-        SUM(CASE WHEN side = 2 THEN 1 ELSE 0 END) as sell_count,
+        SUM(CASE WHEN side = 0 THEN 1 ELSE 0 END) as sell_count,
         SUM(quote_amount::numeric) as total_quote_volume,
         SUM(base_amount::numeric) as total_base_volume,
         AVG(quote_amount::numeric / NULLIF(base_amount::numeric, 0)) as avg_price,
@@ -214,7 +214,7 @@ export default class TradesController {
 
     const buyCount = await query.clone().where('side', 1).count('* as total')
 
-    const sellCount = await query.clone().where('side', 2).count('* as total')
+    const sellCount = await query.clone().where('side', 0).count('* as total')
 
     const volumeStats = await db.rawQuery(
       `

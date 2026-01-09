@@ -1,24 +1,6 @@
 module.exports = {
   apps: [
     {
-      name: 'bigpump-api',
-      script: './build/bin/server.js',
-      instances: 1,
-      exec_mode: 'fork',
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '1G',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3333,
-      },
-      error_file: './logs/api-error.log',
-      out_file: './logs/api-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      time: true,
-    },
-    {
       name: 'bigpump-scanner-bsc',
       script: './ace.js',
       args: 'scan:blockchain --chain=bsc',

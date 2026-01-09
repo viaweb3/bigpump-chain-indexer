@@ -46,7 +46,7 @@ export default class Trade extends BaseModel {
   declare fee: string
 
   @column()
-  declare side: number // 1 = buy, 2 = sell
+  declare side: number // 0 = sell, 1 = buy
 
   @column()
   declare poolEthBalance: string
