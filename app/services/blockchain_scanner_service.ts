@@ -103,32 +103,35 @@ export class BlockchainScannerService {
     }
 
     // Get current block
-    const currentBlock = await this.provider.getBlockNumber()
-    const archiveThreshold = this.config.archiveThreshold || 128
+    try {
+      const currentBlock = await this.provider.getBlockNumber()
+      const archiveThreshold = this.config.archiveThreshold || 128
+      const blockAge = currentBlock - toBlock
 
-    // If querying blocks older than threshold, use archive
-    if (currentBlock - toBlock > archiveThreshold) {
-      logger.debug('Using archive node for historical blocks', {
-        fromBlock,
-        toBlock,
-        currentBlock,
-        threshold: archiveThreshold,
-      })
-
-      return {
-        provider: this.archiveProvider,
-        bondingCurveContract: this.bondingCurveArchiveContract!,
-        createPoolContract: this.createPoolArchiveContract!,
-        isArchive: true,
+      // If querying blocks older than threshold, use archive
+      if (blockAge > archiveThreshold) {
+        return {
+          provider: this.archiveProvider,
+          bondingCurveContract: this.bondingCurveArchiveContract!,
+          createPoolContract: this.createPoolArchiveContract!,
+          isArchive: true,
+        }
       }
-    }
 
-    // Use regular provider for recent blocks
-    return {
-      provider: this.provider,
-      bondingCurveContract: this.bondingCurveContract,
-      createPoolContract: this.createPoolContract,
-      isArchive: false,
+      // Use regular provider for recent blocks
+      return {
+        provider: this.provider,
+        bondingCurveContract: this.bondingCurveContract,
+        createPoolContract: this.createPoolContract,
+        isArchive: false,
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      const errorCode = (error as any).code || 'UNKNOWN'
+      logger.error(
+        `❌ Error in getProviderForBlockRange [${fromBlock}-${toBlock}]: ${errorMsg} (code: ${errorCode})`
+      )
+      throw error
     }
   }
 
@@ -238,15 +241,17 @@ export class BlockchainScannerService {
           lastSuccessAt: DateTime.now(),
         })
       } catch (error) {
-        logger.error('Error in scan loop', { error })
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        const errorCode = (error as any).code || 'UNKNOWN'
+        logger.error(`💥 Error in scan loop: ${errorMsg} (code: ${errorCode})`)
 
         // Update error state
         await this.updateState({
           lastErrorAt: DateTime.now(),
-          lastErrorMessage: error instanceof Error ? error.message : String(error),
+          lastErrorMessage: errorMsg,
         })
 
-        await this.handleError(error)
+        await this.handleError(error, 'scan loop')
       }
 
       // Wait before next iteration
@@ -257,30 +262,51 @@ export class BlockchainScannerService {
   /**
    * Handle errors and reconnection
    */
-  private async handleError(error: any): Promise<void> {
+  private async handleError(error: any, context?: string): Promise<void> {
     this.reconnectAttempts++
 
+    // Extract error details
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorCode = error.code || 'UNKNOWN'
+    const errorReason = error.reason || 'No reason provided'
+    const errorContext = context || 'Unknown operation'
+
+    // Log detailed error information with inline details
+    logger.error(
+      `❌ Reconnection triggered [${this.reconnectAttempts}/${this.maxReconnectAttempts}]: ${errorMessage}`,
+      {
+        context: errorContext,
+        errorCode,
+        errorReason,
+        errorType: error.constructor?.name || 'Unknown',
+        lastProcessedBlock: this.lastProcessedBlock,
+        stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3).join('\n') : undefined,
+      }
+    )
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      logger.error('Max reconnection attempts reached. Stopping scanner.', {
-        attempts: this.reconnectAttempts,
-      })
+      logger.error(
+        `🛑 Max reconnection attempts (${this.maxReconnectAttempts}) reached. Stopping scanner.`
+      )
       this.stop()
       throw error
     }
 
     const delay = this.reconnectDelay * Math.pow(2, Math.min(this.reconnectAttempts - 1, 5))
-    logger.warn(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`, {
-      delay: delay,
-    })
+    logger.warn(
+      `🔄 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms | Error: ${errorMessage.substring(0, 100)}`
+    )
 
     await this.sleep(delay)
 
     // Reinitialize provider
     try {
       this.initializeProvider()
-      logger.info('Provider reinitialized successfully')
+      logger.info(`✅ Provider reinitialized successfully (attempt ${this.reconnectAttempts})`)
     } catch (reinitError) {
-      logger.error('Failed to reinitialize provider', { error: reinitError })
+      const reinitMsg =
+        reinitError instanceof Error ? reinitError.message : String(reinitError)
+      logger.error(`❌ Failed to reinitialize provider: ${reinitMsg}`)
     }
   }
 
@@ -288,33 +314,46 @@ export class BlockchainScannerService {
    * Process new blocks
    */
   private async processNewBlocks(): Promise<void> {
-    const latestBlock = await this.provider.getBlockNumber()
-    const confirmations = this.config.blockConfirmations || 12
-    const safeBlock = latestBlock - confirmations
+    try {
+      const latestBlock = await this.provider.getBlockNumber()
+      const confirmations = this.config.blockConfirmations || 12
+      const safeBlock = latestBlock - confirmations
 
-    if (safeBlock <= this.lastProcessedBlock) {
-      return
-    }
+      if (safeBlock <= this.lastProcessedBlock) {
+        return
+      }
 
-    logger.info(`Processing blocks ${this.lastProcessedBlock + 1} to ${safeBlock}`)
-
-    // Process in chunks to avoid overloading RPC
-    // Configurable chunk size allows tuning based on RPC performance
-    const chunkSize = this.config.chunkSize || 1000
-    for (
-      let fromBlock = this.lastProcessedBlock + 1;
-      fromBlock <= safeBlock;
-      fromBlock += chunkSize
-    ) {
-      const toBlock = Math.min(fromBlock + chunkSize - 1, safeBlock)
-
-      await this.processBlockRange(fromBlock, toBlock)
-      this.lastProcessedBlock = toBlock
-
-      // Update state after each chunk
-      await this.updateState({
-        lastProcessedBlock: toBlock,
+      logger.info(`Processing blocks ${this.lastProcessedBlock + 1} to ${safeBlock}`, {
+        latestBlock,
+        confirmations,
+        blocksToProcess: safeBlock - this.lastProcessedBlock,
       })
+
+      // Process in chunks to avoid overloading RPC
+      // Configurable chunk size allows tuning based on RPC performance
+      const chunkSize = this.config.chunkSize || 1000
+      for (
+        let fromBlock = this.lastProcessedBlock + 1;
+        fromBlock <= safeBlock;
+        fromBlock += chunkSize
+      ) {
+        const toBlock = Math.min(fromBlock + chunkSize - 1, safeBlock)
+
+        await this.processBlockRange(fromBlock, toBlock)
+        this.lastProcessedBlock = toBlock
+
+        // Update state after each chunk
+        await this.updateState({
+          lastProcessedBlock: toBlock,
+        })
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      const errorCode = (error as any).code || 'UNKNOWN'
+      logger.error(
+        `❌ Error in processNewBlocks: ${errorMsg} (code: ${errorCode}, lastBlock: ${this.lastProcessedBlock})`
+      )
+      throw error
     }
   }
 
@@ -322,43 +361,57 @@ export class BlockchainScannerService {
    * Process a range of blocks
    */
   private async processBlockRange(fromBlock: number, toBlock: number): Promise<void> {
-    logger.debug(`Processing block range ${fromBlock} to ${toBlock}`)
+    const startTime = Date.now()
 
-    // Get appropriate provider for this block range
-    const { bondingCurveContract, createPoolContract, isArchive } =
-      await this.getProviderForBlockRange(fromBlock, toBlock)
+    try {
+      // Get appropriate provider for this block range
+      const { bondingCurveContract, createPoolContract, isArchive } =
+        await this.getProviderForBlockRange(fromBlock, toBlock)
 
-    if (isArchive) {
-      logger.info(`Using archive node for block range ${fromBlock} to ${toBlock}`)
+      if (isArchive) {
+        logger.info(`Using archive node for block range ${fromBlock} to ${toBlock}`)
+      }
+
+      // Fetch Trade events
+      const tradeFilter = bondingCurveContract.filters.Trade()
+      const tradeEvents = await bondingCurveContract.queryFilter(tradeFilter, fromBlock, toBlock)
+
+      // Fetch NewPool events
+      const poolFilter = createPoolContract.filters.NewPool()
+      const poolEvents = await createPoolContract.queryFilter(poolFilter, fromBlock, toBlock)
+
+      // Process events
+      await Promise.all([this.processTrades(tradeEvents), this.processPools(poolEvents)])
+
+      // Update statistics
+      const totalEvents = tradeEvents.length + poolEvents.length
+      const blocksProcessed = toBlock - fromBlock + 1
+
+      await ScannerState.query()
+        .where('chain_id', this.config.chainId)
+        .where('scanner_name', this.config.scannerName)
+        .increment('total_blocks_processed', blocksProcessed)
+        .increment('total_events_processed', totalEvents)
+
+      const duration = Date.now() - startTime
+      logger.info(`Processed ${tradeEvents.length} trades and ${poolEvents.length} pools`, {
+        fromBlock,
+        toBlock,
+        usedArchive: isArchive,
+        totalEvents,
+        durationMs: duration,
+        blocksPerSecond: ((blocksProcessed / duration) * 1000).toFixed(2),
+      })
+    } catch (error) {
+      const duration = Date.now() - startTime
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      const errorCode = (error as any).code || 'UNKNOWN'
+      const errorReason = (error as any).reason || 'No reason'
+      logger.error(
+        `❌ Error in processBlockRange [${fromBlock}-${toBlock}]: ${errorMsg} | Code: ${errorCode} | Reason: ${errorReason} | Duration: ${duration}ms`
+      )
+      throw error
     }
-
-    // Fetch Trade events
-    const tradeFilter = bondingCurveContract.filters.Trade()
-    const tradeEvents = await bondingCurveContract.queryFilter(tradeFilter, fromBlock, toBlock)
-
-    // Fetch NewPool events
-    const poolFilter = createPoolContract.filters.NewPool()
-    const poolEvents = await createPoolContract.queryFilter(poolFilter, fromBlock, toBlock)
-
-    // Process events
-    await Promise.all([this.processTrades(tradeEvents), this.processPools(poolEvents)])
-
-    // Update statistics
-    const totalEvents = tradeEvents.length + poolEvents.length
-    const blocksProcessed = toBlock - fromBlock + 1
-
-    await ScannerState.query()
-      .where('chain_id', this.config.chainId)
-      .where('scanner_name', this.config.scannerName)
-      .increment('total_blocks_processed', blocksProcessed)
-      .increment('total_events_processed', totalEvents)
-
-    logger.info(`Processed ${tradeEvents.length} trades and ${poolEvents.length} pools`, {
-      fromBlock,
-      toBlock,
-      usedArchive: isArchive,
-      totalEvents,
-    })
   }
 
   /**
@@ -367,13 +420,23 @@ export class BlockchainScannerService {
   private async processTrades(events: ethers.EventLog[]): Promise<void> {
     for (const event of events) {
       try {
+        // The event emits a tuple as the first (and only) argument
         const tradeData = event.args?.[0]
-        if (!tradeData) continue
+        if (!tradeData) {
+          continue
+        }
 
         const block = await event.getBlock()
         const receipt = await event.getTransactionReceipt()
 
-        await Trade.updateOrCreate(
+        // Validate required fields
+        if (!tradeData.trader || !tradeData.sender || !tradeData.tokenAddress) {
+          logger.warn(
+            `⚠️  Skipping trade event [Block: ${event.blockNumber}] - Missing required fields`
+          )
+          continue
+        }
+        await Trade.firstOrCreate(
           {
             chainId: this.config.chainId,
             transactionHash: receipt.hash,
@@ -386,28 +449,28 @@ export class BlockchainScannerService {
             trader: tradeData.trader.toLowerCase(),
             sender: tradeData.sender.toLowerCase(),
             tokenAddress: tradeData.tokenAddress.toLowerCase(),
-            tokenName: tradeData.tokenName,
-            tokenTicker: tradeData.tokenTicker,
+            tokenName: tradeData.tokenName || '',
+            tokenTicker: tradeData.tokenTicker || '',
             tokenUri: tradeData.tokenUri || null,
-            quoteAmount: tradeData.quoteAmount.toString(),
-            baseAmount: tradeData.baseAmount.toString(),
-            fee: tradeData.fee.toString(),
-            side: Number(tradeData.side),
-            poolEthBalance: tradeData.poolEthBalance.toString(),
-            poolTokenBalance: tradeData.poolTokenBalance.toString(),
+            quoteAmount: tradeData.quoteAmount?.toString() || '0',
+            baseAmount: tradeData.baseAmount?.toString() || '0',
+            fee: tradeData.fee?.toString() || '0',
+            side: Number(tradeData.side || 0),
+            poolEthBalance: tradeData.poolEthBalance?.toString() || '0',
+            poolTokenBalance: tradeData.poolTokenBalance?.toString() || '0',
             transactionHash: receipt.hash,
             blockNumber: block.number,
             blockTimestamp: DateTime.fromSeconds(block.timestamp),
           }
         )
-
-        logger.debug(`Processed trade event`, {
-          txHash: receipt.hash,
-          poolId: Number(tradeData.poolId),
-          trader: tradeData.trader,
-        })
       } catch (error) {
-        logger.error('Error processing trade event', { error, event })
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        const errorCode = (error as any).code || 'UNKNOWN'
+        logger.error(
+          `❌ Error processing trade event [Block: ${event.blockNumber}, Tx: ${event.transactionHash}]: ${errorMsg} (code: ${errorCode})`
+        )
+        // Don't call handleError here - let the error propagate to processBlockRange
+        throw error
       }
     }
   }
@@ -418,13 +481,23 @@ export class BlockchainScannerService {
   private async processPools(events: ethers.EventLog[]): Promise<void> {
     for (const event of events) {
       try {
+        // The event emits a tuple as the first (and only) argument
         const poolData = event.args?.[0]
-        if (!poolData) continue
+        if (!poolData) {
+          continue
+        }
 
         const block = await event.getBlock()
         const receipt = await event.getTransactionReceipt()
 
-        await Pool.updateOrCreate(
+        // Validate required fields
+        if (!poolData.creator || !poolData.tokenAddress) {
+          logger.warn(
+            `⚠️  Skipping pool event [Block: ${event.blockNumber}] - Missing required fields`
+          )
+          continue
+        }
+        await Pool.firstOrCreate(
           {
             chainId: this.config.chainId,
             poolId: Number(poolData.poolId),
@@ -436,32 +509,32 @@ export class BlockchainScannerService {
             poolId: Number(poolData.poolId),
             creator: poolData.creator.toLowerCase(),
             tokenAddress: poolData.tokenAddress.toLowerCase(),
-            tokenDecimals: Number(poolData.tokenDecimals),
-            nftName: poolData.nftName,
-            nftTicker: poolData.nftTicker,
+            tokenDecimals: Number(poolData.tokenDecimals || 18),
+            nftName: poolData.nftName || '',
+            nftTicker: poolData.nftTicker || '',
             uri: poolData.uri || null,
             nftDescription: poolData.nftDescription || null,
-            conversionRate: poolData.conversionRate.toString(),
-            tokenSupply: poolData.tokenSupply.toString(),
-            tokenBalance: poolData.tokenBalance.toString(),
-            ethBalance: poolData.ethBalance.toString(),
-            nftPrice: poolData.nftPrice.toString(),
-            feeRate: poolData.feeRate.toString(),
-            mintable: Number(poolData.mintable),
-            lpAmount: poolData.lpAmount.toString(),
+            conversionRate: poolData.conversionRate?.toString() || '0',
+            tokenSupply: poolData.tokenSupply?.toString() || '0',
+            tokenBalance: poolData.tokenBalance?.toString() || '0',
+            ethBalance: poolData.ethBalance?.toString() || '0',
+            nftPrice: poolData.nftPrice?.toString() || '0',
+            feeRate: poolData.feeRate?.toString() || '0',
+            mintable: Number(poolData.mintable || 0),
+            lpAmount: poolData.lpAmount?.toString() || '0',
             transactionHash: receipt.hash,
             blockNumber: block.number,
             blockTimestamp: DateTime.fromSeconds(block.timestamp),
           }
         )
-
-        logger.debug(`Processed pool event`, {
-          txHash: receipt.hash,
-          poolId: Number(poolData.poolId),
-          creator: poolData.creator,
-        })
       } catch (error) {
-        logger.error('Error processing pool event', { error, event })
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        const errorCode = (error as any).code || 'UNKNOWN'
+        logger.error(
+          `❌ Error processing pool event [Block: ${event.blockNumber}, Tx: ${event.transactionHash}]: ${errorMsg} (code: ${errorCode})`
+        )
+        // Don't call handleError here - let the error propagate to processBlockRange
+        throw error
       }
     }
   }

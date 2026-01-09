@@ -3,7 +3,9 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
 
 export default class Trade extends BaseModel {
   // Composite primary key: [chainId, transactionHash, poolId, blockTimestamp]
-  // No single @column.isPrimary key
+  // Use transactionHash as Lucid's primary key (even though DB has composite key)
+  public static selfAssignPrimaryKey = true
+  public static primaryKey = 'transactionHash'
 
   // Chain and contract info
   @column()
@@ -53,7 +55,7 @@ export default class Trade extends BaseModel {
   declare poolTokenBalance: string
 
   // Blockchain transaction info
-  @column()
+  @column({ isPrimary: true })
   declare transactionHash: string
 
   @column()
