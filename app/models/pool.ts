@@ -78,4 +78,8 @@ export default class Pool extends BaseModel {
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+
+  // Webhook tracking
+  @column()
+  declare webhookSent: boolean
 }

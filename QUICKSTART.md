@@ -17,11 +17,13 @@ npm install
 ### 安装 TimescaleDB
 
 **macOS (Homebrew)**:
+
 ```bash
 brew install timescaledb
 ```
 
 **Ubuntu/Debian**:
+
 ```bash
 # 添加 TimescaleDB 仓库
 sudo sh -c "echo 'deb https://packagecloud.io/timescale/timescaledb/ubuntu/ $(lsb_release -c -s) main' > /etc/apt/sources.list.d/timescaledb.list"
@@ -31,6 +33,7 @@ sudo apt install timescaledb-2-postgresql-14
 ```
 
 **Docker (推荐用于开发)**:
+
 ```bash
 docker run -d \
   --name timescaledb \
@@ -79,6 +82,7 @@ SCANNER_POLL_INTERVAL=5000
 ```
 
 生成 APP_KEY：
+
 ```bash
 node ace generate:key
 ```
@@ -90,6 +94,7 @@ node ace migration:run
 ```
 
 预期输出：
+
 ```
 ❯ migration:run
 
@@ -108,11 +113,13 @@ Completed in 89ms
 在两个终端窗口中分别运行：
 
 **终端 1 - API 服务器**:
+
 ```bash
 npm run dev
 ```
 
 **终端 2 - 区块链扫描器**:
+
 ```bash
 node ace scan:blockchain
 ```
@@ -151,6 +158,7 @@ curl http://localhost:3333/api/v1/trades?limit=5
 ### 检查日志
 
 扫描器会输出类似以下日志：
+
 ```
 INFO  Starting blockchain scanner
 INFO  Loaded scanner state from database lastProcessedBlock=12345678
@@ -165,6 +173,7 @@ INFO  Processed 5 trades and 2 pools
 **问题**: `Error in scan loop { error: 'timeout' }`
 
 **解决**:
+
 1. 检查网络连接
 2. 尝试更换 RPC URL
 3. 降低 `SCANNER_CHUNK_SIZE` (例如设为 100)
@@ -175,6 +184,7 @@ INFO  Processed 5 trades and 2 pools
 **问题**: `DB_HOST refused connection`
 
 **解决**:
+
 1. 确认 PostgreSQL 正在运行: `pg_isready`
 2. 检查 `.env` 中的数据库配置
 3. 确认数据库存在: `psql -l`
@@ -185,6 +195,7 @@ INFO  Processed 5 trades and 2 pools
 **问题**: `429 Too Many Requests`
 
 **解决**:
+
 ```env
 # 使用免费 RPC 时的配置
 SCANNER_CHUNK_SIZE=100
@@ -192,6 +203,7 @@ SCANNER_POLL_INTERVAL=10000
 ```
 
 或者使用付费 RPC 服务：
+
 - QuickNode: https://www.quicknode.com/
 - Alchemy: https://www.alchemy.com/
 - Ankr: https://www.ankr.com/
@@ -199,6 +211,7 @@ SCANNER_POLL_INTERVAL=10000
 ### Q: 内存不足
 
 **解决**:
+
 ```env
 # 降低批处理大小
 SCANNER_CHUNK_SIZE=500
@@ -209,6 +222,7 @@ SCANNER_CHUNK_SIZE=500
 根据你的 RPC 提供商调整配置：
 
 ### 免费公共 RPC
+
 ```env
 BSC_RPC_URL=https://bsc-dataseed1.binance.org
 SCANNER_CHUNK_SIZE=100
@@ -217,6 +231,7 @@ SCANNER_BLOCK_CONFIRMATIONS=12
 ```
 
 ### 付费 RPC (QuickNode/Alchemy)
+
 ```env
 BSC_RPC_URL=https://your-paid-rpc-url
 SCANNER_CHUNK_SIZE=2000
@@ -225,6 +240,7 @@ SCANNER_BLOCK_CONFIRMATIONS=12
 ```
 
 ### 带归档节点
+
 ```env
 BSC_RPC_URL=https://regular-rpc-url
 BSC_ARCHIVE_RPC_URL=https://archive-rpc-url
@@ -235,11 +251,13 @@ SCANNER_ARCHIVE_THRESHOLD=128
 ## 9. 监控和维护
 
 ### 查看扫描器状态
+
 ```bash
 curl http://localhost:3333/api/v1/scanner-states | jq
 ```
 
 ### 查看统计信息
+
 ```bash
 # 池统计
 curl "http://localhost:3333/api/v1/pools/stats?chain_id=56" | jq
@@ -249,6 +267,7 @@ curl "http://localhost:3333/api/v1/trades/stats?chain_id=56" | jq
 ```
 
 ### 检查数据库
+
 ```sql
 -- 查看扫描进度
 SELECT * FROM scanner_states;

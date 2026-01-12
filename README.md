@@ -25,16 +25,19 @@
 ## 安装
 
 1. 安装依赖:
+
 ```bash
 npm install
 ```
 
 2. 配置环境变量:
+
 ```bash
 cp .env.example .env
 ```
 
 编辑 `.env` 文件:
+
 ```env
 # 数据库配置
 DB_HOST=127.0.0.1
@@ -59,11 +62,13 @@ SCANNER_ARCHIVE_THRESHOLD=128   # 归档节点阈值
 3. 设置 TimescaleDB:
 
 确保你的 PostgreSQL 数据库已安装 TimescaleDB 扩展:
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 ```
 
 4. 运行数据库迁移:
+
 ```bash
 node ace migration:run
 ```
@@ -73,11 +78,13 @@ node ace migration:run
 ### 启动 API 服务器
 
 开发模式:
+
 ```bash
 npm run dev
 ```
 
 生产模式:
+
 ```bash
 npm run build
 npm start
@@ -88,11 +95,13 @@ API 服务将在 `http://localhost:3333` 启动。
 ### 启动扫描器
 
 在另一个终端窗口中运行:
+
 ```bash
 node ace scan:blockchain
 ```
 
 可选参数:
+
 - `--chain`: 指定链（默认: bsc）
 
 扫描器会自动从数据库中读取上次的进度，支持断点续扫。
@@ -102,6 +111,7 @@ node ace scan:blockchain
 ### Pools 表
 
 存储池创建事件:
+
 - `chain_id`: 链 ID (56 for BSC)
 - `pool_id`: 池 ID
 - `creator`: 创建者地址
@@ -113,6 +123,7 @@ node ace scan:blockchain
 ### Trades 表
 
 存储交易事件:
+
 - `chain_id`: 链 ID
 - `pool_id`: 池 ID
 - `trader`: 交易者地址
@@ -123,6 +134,7 @@ node ace scan:blockchain
 ### Scanner States 表
 
 存储扫描器状态:
+
 - `chain_id`: 链 ID
 - `scanner_name`: 扫描器名称
 - `last_processed_block`: 最后处理的区块
@@ -204,14 +216,17 @@ curl "http://localhost:3333/api/v1/trades/time-range?start_time=2024-01-01T00:00
 ```
 
 **前端示例 (JavaScript)**:
+
 ```javascript
 // 获取最近24小时的数据
 const endTime = Date.now()
 const startTime = endTime - 24 * 60 * 60 * 1000
 
-fetch(`/api/v1/trades/kline?pool_id=1&interval=1h&start_timestamp=${startTime}&end_timestamp=${endTime}`)
-  .then(res => res.json())
-  .then(data => console.log(data))
+fetch(
+  `/api/v1/trades/kline?pool_id=1&interval=1h&start_timestamp=${startTime}&end_timestamp=${endTime}`
+)
+  .then((res) => res.json())
+  .then((data) => console.log(data))
 ```
 
 ### K线数据
@@ -223,6 +238,7 @@ K线数据通过 `/api/v1/trades/kline` 端点提供，支持多种时间周期�
 ### 持久化状态
 
 扫描器状态保存在 `scanner_states` 表中，包括:
+
 - 最后处理的区块号
 - 运行状态
 - 处理统计
@@ -233,20 +249,24 @@ K线数据通过 `/api/v1/trades/kline` 端点提供，支持多种时间周期�
 ### 归档节点支持
 
 系统支持两种 RPC 配置:
+
 - **普通 RPC**: 用于查询最近的区块（快速但历史有限）
 - **归档 RPC**: 用于查询历史区块（完整历史但较慢）
 
 扫描器会根据区块年龄自动选择合适的 RPC:
+
 - 最近 128 个区块: 使用普通 RPC
 - 更早的区块: 使用归档 RPC（如果配置）
 
 配置归档节点:
+
 ```env
 BSC_ARCHIVE_RPC_URL=https://your-archive-node-url
 SCANNER_ARCHIVE_THRESHOLD=128
 ```
 
 推荐的归档节点服务:
+
 - [QuickNode](https://www.quicknode.com/)
 - [Alchemy](https://www.alchemy.com/)
 - [Ankr](https://www.ankr.com/)
@@ -256,6 +276,7 @@ SCANNER_ARCHIVE_THRESHOLD=128
 扫描器提供多个配置参数用于性能优化:
 
 **批处理大小** (`SCANNER_CHUNK_SIZE`)
+
 - 默认值: 1000 区块
 - 说明: 每次从 RPC 节点获取的区块范围
 - 调优建议:
@@ -264,6 +285,7 @@ SCANNER_ARCHIVE_THRESHOLD=128
   - 归档节点: 500-1000（历史数据查询较慢）
 
 **轮询间隔** (`SCANNER_POLL_INTERVAL`)
+
 - 默认值: 5000ms
 - 说明: 检查新区块的时间间隔
 - 调优建议:
@@ -272,6 +294,7 @@ SCANNER_ARCHIVE_THRESHOLD=128
   - 节省资源: 10000ms（降低 RPC 压力）
 
 **区块确认数** (`SCANNER_BLOCK_CONFIRMATIONS`)
+
 - 默认值: 12
 - 说明: 等待的区块确认数，防止分叉
 - 调优建议:
@@ -282,6 +305,7 @@ SCANNER_ARCHIVE_THRESHOLD=128
 ### 错误处理
 
 扫描器包含自动错误恢复机制:
+
 - **自动重连**: RPC 连接失败时自动重连（最多 10 次）
 - **指数退避**: 重连延迟采用指数退避策略
 - **区块确认**: 等待配置的区块确认数以避免分叉
@@ -291,6 +315,7 @@ SCANNER_ARCHIVE_THRESHOLD=128
 ## 日志
 
 日志级别可在 `.env` 中配置:
+
 ```env
 LOG_LEVEL=info  # 可选: fatal, error, warn, info, debug, trace
 ```
@@ -300,16 +325,19 @@ LOG_LEVEL=info  # 可选: fatal, error, warn, info, debug, trace
 ### RPC 提供商选择
 
 **免费 RPC 节点**:
+
 - BSC 官方: `https://bsc-dataseed1.binance.org`
 - 限制: 速率限制严格，建议 `SCANNER_CHUNK_SIZE=100-200`
 - 适用: 测试和小规模使用
 
 **付费 RPC 节点**:
+
 - QuickNode, Alchemy, Ankr 等
 - 优势: 更高速率限制，更稳定
 - 推荐配置: `SCANNER_CHUNK_SIZE=1000-2000`
 
 **归档节点配置**:
+
 ```env
 # 普通节点处理最近区块
 BSC_RPC_URL=https://bsc-dataseed1.binance.org
@@ -325,6 +353,7 @@ SCANNER_CHUNK_SIZE=500
 ### 常见场景配置
 
 **快速追赶历史数据**:
+
 ```env
 SCANNER_CHUNK_SIZE=2000
 SCANNER_POLL_INTERVAL=1000
@@ -332,6 +361,7 @@ SCANNER_BLOCK_CONFIRMATIONS=6
 ```
 
 **稳定生产环境**:
+
 ```env
 SCANNER_CHUNK_SIZE=1000
 SCANNER_POLL_INTERVAL=5000
@@ -339,6 +369,7 @@ SCANNER_BLOCK_CONFIRMATIONS=12
 ```
 
 **免费 RPC 节点**:
+
 ```env
 SCANNER_CHUNK_SIZE=100
 SCANNER_POLL_INTERVAL=10000

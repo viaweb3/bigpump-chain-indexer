@@ -13,12 +13,14 @@ npm install -g pm2
 `ecosystem.config.js` 配置了两个应用：
 
 ### 1. bigpump-api
+
 - **作用**: RESTful API 服务器
 - **端口**: 3333
 - **内存限制**: 1GB
 - **日志**: `./logs/api-*.log`
 
 ### 2. bigpump-scanner-bsc
+
 - **作用**: BSC 区块链扫描器
 - **命令**: `node ace scan:blockchain --chain=bsc`
 - **内存限制**: 512MB

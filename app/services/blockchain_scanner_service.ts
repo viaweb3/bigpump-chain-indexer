@@ -7,6 +7,7 @@ import Trade from '#models/trade'
 import ScannerState from '#models/scanner_state'
 import { BONDING_CURVE_ABI } from '#contracts/bonding_curve_abi'
 import { CREATE_POOL_ABI } from '#contracts/create_pool_abi'
+import { sleep } from '#utils/helpers'
 
 export interface ScannerConfig {
   chainId: number
@@ -46,8 +47,11 @@ export class BlockchainScannerService {
    * Initialize provider and contracts
    */
   private initializeProvider(): void {
-    // Regular provider
-    this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl)
+    // Regular provider with explicit chainId to avoid eth_chainId RPC calls
+    this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl, {
+      name: 'custom',
+      chainId: this.config.chainId,
+    })
 
     this.bondingCurveContract = new ethers.Contract(
       this.config.bondingCurveAddress,
@@ -61,10 +65,13 @@ export class BlockchainScannerService {
       this.provider
     )
 
-    // Archive provider (if configured)
+    // Archive provider (if configured) with explicit chainId to avoid eth_chainId RPC calls
     if (this.config.archiveRpcUrl) {
       logger.info('Archive RPC URL configured', { url: this.config.archiveRpcUrl })
-      this.archiveProvider = new ethers.JsonRpcProvider(this.config.archiveRpcUrl)
+      this.archiveProvider = new ethers.JsonRpcProvider(this.config.archiveRpcUrl, {
+        name: 'custom-archive',
+        chainId: this.config.chainId,
+      })
 
       this.bondingCurveArchiveContract = new ethers.Contract(
         this.config.bondingCurveAddress,
@@ -255,7 +262,7 @@ export class BlockchainScannerService {
       }
 
       // Wait before next iteration
-      await this.sleep(this.config.pollInterval || 5000)
+      await sleep(this.config.pollInterval || 5000)
     }
   }
 
@@ -297,15 +304,14 @@ export class BlockchainScannerService {
       `🔄 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms | Error: ${errorMessage.substring(0, 100)}`
     )
 
-    await this.sleep(delay)
+    await sleep(delay)
 
     // Reinitialize provider
     try {
       this.initializeProvider()
       logger.info(`✅ Provider reinitialized successfully (attempt ${this.reconnectAttempts})`)
     } catch (reinitError) {
-      const reinitMsg =
-        reinitError instanceof Error ? reinitError.message : String(reinitError)
+      const reinitMsg = reinitError instanceof Error ? reinitError.message : String(reinitError)
       logger.error(`❌ Failed to reinitialize provider: ${reinitMsg}`)
     }
   }
@@ -537,13 +543,6 @@ export class BlockchainScannerService {
         throw error
       }
     }
-  }
-
-  /**
-   * Helper function to sleep
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   /**

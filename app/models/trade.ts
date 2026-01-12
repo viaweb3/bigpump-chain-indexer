@@ -69,4 +69,8 @@ export default class Trade extends BaseModel {
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+
+  // Webhook tracking
+  @column()
+  declare webhookSent: boolean
 }
