@@ -24,12 +24,12 @@ export interface ScannerConfig {
 }
 
 export class BlockchainScannerService {
-  private provider: ethers.JsonRpcProvider
-  private archiveProvider: ethers.JsonRpcProvider | null = null
-  private bondingCurveContract: ethers.Contract
-  private createPoolContract: ethers.Contract
-  private bondingCurveArchiveContract: ethers.Contract | null = null
-  private createPoolArchiveContract: ethers.Contract | null = null
+  private provider!: ethers.JsonRpcProvider
+  private archiveProvider!: ethers.JsonRpcProvider
+  private bondingCurveContract!: ethers.Contract
+  private createPoolContract!: ethers.Contract
+  private bondingCurveArchiveContract!: ethers.Contract
+  private createPoolArchiveContract!: ethers.Contract
   private config: ScannerConfig
   private lastProcessedBlock: number
   private isRunning: boolean = false
@@ -387,7 +387,10 @@ export class BlockchainScannerService {
       const poolEvents = await createPoolContract.queryFilter(poolFilter, fromBlock, toBlock)
 
       // Process events
-      await Promise.all([this.processTrades(tradeEvents), this.processPools(poolEvents)])
+      await Promise.all([
+        this.processTrades(tradeEvents.filter((e): e is ethers.EventLog => 'args' in e && !!e.args)),
+        this.processPools(poolEvents.filter((e): e is ethers.EventLog => 'args' in e && !!e.args))
+      ])
 
       // Update statistics
       const totalEvents = tradeEvents.length + poolEvents.length
