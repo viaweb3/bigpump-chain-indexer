@@ -63,6 +63,13 @@ export default class Pool extends BaseModel {
   @column()
   declare lpAmount: string
 
+  // Token price and market cap
+  @column()
+  declare tokenPrice: string | null
+
+  @column()
+  declare marketCap: string | null
+
   // Blockchain transaction info
   @column({ isPrimary: true })
   declare transactionHash: string

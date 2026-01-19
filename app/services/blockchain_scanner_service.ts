@@ -8,6 +8,7 @@ import ScannerState from '#models/scanner_state'
 import { BONDING_CURVE_ABI } from '#contracts/bonding_curve_abi'
 import { CREATE_POOL_ABI } from '#contracts/create_pool_abi'
 import { sleep } from '#utils/helpers'
+import BigNumber from 'bignumber.js'
 
 export interface ScannerConfig {
   chainId: number
@@ -445,6 +446,7 @@ export class BlockchainScannerService {
           )
           continue
         }
+        // Create or update trade
         await Trade.firstOrCreate(
           {
             chainId: this.config.chainId,
@@ -472,6 +474,55 @@ export class BlockchainScannerService {
             blockTimestamp: DateTime.fromSeconds(block.timestamp),
           }
         )
+
+        // Update pool token price and market cap
+        const pool = await Pool.query()
+          .where('chain_id', this.config.chainId)
+          .where('pool_id', Number(tradeData.poolId))
+          .first()
+
+        if (pool) {
+          // Configure BigNumber to use fixed format (not scientific notation) and 18 decimal places
+          BigNumber.config({
+            DECIMAL_PLACES: 18,
+            ROUNDING_MODE: BigNumber.ROUND_DOWN,
+            EXPONENTIAL_AT: [-20, 20] // Avoid scientific notation for most numbers
+          })
+          
+          const WEI = new BigNumber('1000000000000000000') // 1e18
+          const MILLION = new BigNumber('1000000') // 1e6
+
+          // Calculate token price: token_price = quote_amount / 1e18 / (base_amount / 1e6)
+          let tokenPrice: string | null = null
+          const quoteAmountBN = new BigNumber(tradeData.quoteAmount || 0)
+          const baseAmountBN = new BigNumber(tradeData.baseAmount || 0)
+          
+          if (baseAmountBN.gt(0) && quoteAmountBN.gt(0)) {
+            
+            // Calculate price with full precision
+            const price = quoteAmountBN.div(WEI).div(baseAmountBN.div(MILLION))
+            // Use toFixed(18) to ensure standard notation with 18 decimal places
+            tokenPrice = price.toFixed(18)
+          }
+
+          // Calculate market cap: market_cap = token_price * (token_supply / 1e6)
+          let marketCap: string | null = null
+          if (tokenPrice !== null && new BigNumber(pool.tokenSupply).gt(0)) {
+            const tokenPriceBN = new BigNumber(tokenPrice)
+            const tokenSupplyBN = new BigNumber(pool.tokenSupply)
+            
+            // Calculate market cap with full precision
+            const marketCapBN = tokenPriceBN.multipliedBy(tokenSupplyBN.div(MILLION))
+            // Use toFixed(18) to ensure standard notation with 18 decimal places
+            marketCap = marketCapBN.toFixed(18)
+          }
+
+          // Update pool with new values
+          await pool.merge({
+            tokenPrice: tokenPrice,
+            marketCap: marketCap,
+          }).save()
+        }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error)
         const errorCode = (error as any).code || 'UNKNOWN'
