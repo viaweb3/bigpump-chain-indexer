@@ -262,7 +262,7 @@ export class WebhookSenderService {
             // Handle trade event for SSE publish
             sseBody = {
               channel: 'pump',
-              type: 'prod_bsc_evm_pump_events_swap_origin',
+              type: 'bsc_evm_pump_events_swap_origin',
               data: {
                 token_price:
                   Number.parseFloat(eventData.quoteAmount) /
@@ -290,7 +290,7 @@ export class WebhookSenderService {
             // Handle pool event for SSE publish
             sseBody = {
               channel: 'pump',
-              type: 'prod_evm_pump_events_newpool_origin',
+              type: 'bsc_evm_pump_events_newpool_origin',
               data: {
                 pool_id: eventData.poolId,
                 creator: eventData.creator,
