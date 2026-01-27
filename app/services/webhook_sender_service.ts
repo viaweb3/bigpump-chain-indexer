@@ -263,56 +263,14 @@ export class WebhookSenderService {
             sseBody = {
               channel: 'pump',
               type: 'bsc_evm_pump_events_swap_origin',
-              data: {
-                token_price:
-                  Number.parseFloat(eventData.quoteAmount) /
-                  Number.parseFloat(eventData.baseAmount),
-                trader: eventData.trader,
-                token_address: eventData.tokenAddress,
-                user_avatar: '', // Default empty avatar
-                user_name: eventData.trader.substring(0, 10), // Use truncated trader address as username
-                user_certified: 0, // Default not certified
-                conversion_rate:
-                  Number.parseFloat(eventData.quoteAmount) /
-                  Number.parseFloat(eventData.baseAmount),
-                nft_description: '', // Not available in trade event
-                token_supply: 0, // Not available in trade event
-                creator: '', // Not available in trade event
-                market_cap: 0, // Calculate if available
-                sender: eventData.sender,
-                quote_amount: eventData.quoteAmount,
-                base_amount: eventData.baseAmount,
-                time: Math.floor(eventData.blockTimestamp.toSeconds()),
-                type: eventData.side === 1 ? 'buy' : 'sell',
-              },
+              data: eventData,
             }
           } else if (eventType === 'pool') {
             // Handle pool event for SSE publish
             sseBody = {
               channel: 'pump',
               type: 'bsc_evm_pump_events_newpool_origin',
-              data: {
-                pool_id: eventData.poolId,
-                creator: eventData.creator,
-                token_address: eventData.tokenAddress,
-                token_decimals: eventData.tokenDecimals,
-                nft_name: eventData.nftName,
-                nft_ticker: eventData.nftTicker,
-                uri: eventData.uri,
-                nft_description: eventData.nftDescription,
-                conversion_rate: eventData.conversionRate,
-                token_supply: eventData.tokenSupply,
-                token_balance: eventData.tokenBalance,
-                eth_balance: eventData.ethBalance,
-                nft_price: eventData.nftPrice,
-                fee_rate: eventData.feeRate,
-                mintable: eventData.mintable,
-                lp_amount: eventData.lpAmount,
-                transaction_hash: eventData.transactionHash,
-                block_number: eventData.blockNumber,
-                time: Math.floor(eventData.blockTimestamp.toSeconds()),
-                type: 'pool',
-              },
+              data: eventData,
             }
           }
 
