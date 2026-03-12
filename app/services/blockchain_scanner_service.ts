@@ -7,6 +7,7 @@ import Trade from '#models/trade'
 import ScannerState from '#models/scanner_state'
 import { BONDING_CURVE_ABI } from '#contracts/bonding_curve_abi'
 import { CREATE_POOL_ABI } from '#contracts/create_pool_abi'
+import { ADD_POOL_ABI } from '#contracts/add_pool_abi'
 import { sleep } from '#utils/helpers'
 import BigNumber from 'bignumber.js'
 
@@ -17,6 +18,7 @@ export interface ScannerConfig {
   archiveRpcUrl?: string
   bondingCurveAddress: string
   createPoolAddress: string
+  addPoolAddress: string
   startBlock?: number
   blockConfirmations?: number
   pollInterval?: number
@@ -29,8 +31,10 @@ export class BlockchainScannerService {
   private archiveProvider!: ethers.JsonRpcProvider
   private bondingCurveContract!: ethers.Contract
   private createPoolContract!: ethers.Contract
+  private addPoolContract!: ethers.Contract
   private bondingCurveArchiveContract!: ethers.Contract
   private createPoolArchiveContract!: ethers.Contract
+  private addPoolArchiveContract!: ethers.Contract
   private config: ScannerConfig
   private lastProcessedBlock: number
   private isRunning: boolean = false
@@ -66,6 +70,12 @@ export class BlockchainScannerService {
       this.provider
     )
 
+    this.addPoolContract = new ethers.Contract(
+      this.config.addPoolAddress,
+      ADD_POOL_ABI,
+      this.provider
+    )
+
     // Archive provider (if configured) with explicit chainId to avoid eth_chainId RPC calls
     if (this.config.archiveRpcUrl) {
       logger.info('Archive RPC URL configured', { url: this.config.archiveRpcUrl })
@@ -85,6 +95,12 @@ export class BlockchainScannerService {
         CREATE_POOL_ABI,
         this.archiveProvider
       )
+
+      this.addPoolArchiveContract = new ethers.Contract(
+        this.config.addPoolAddress,
+        ADD_POOL_ABI,
+        this.archiveProvider
+      )
     }
   }
 
@@ -98,6 +114,7 @@ export class BlockchainScannerService {
     provider: ethers.JsonRpcProvider
     bondingCurveContract: ethers.Contract
     createPoolContract: ethers.Contract
+    addPoolContract: ethers.Contract
     isArchive: boolean
   }> {
     // If no archive provider, always use regular
@@ -106,6 +123,7 @@ export class BlockchainScannerService {
         provider: this.provider,
         bondingCurveContract: this.bondingCurveContract,
         createPoolContract: this.createPoolContract,
+        addPoolContract: this.addPoolContract,
         isArchive: false,
       }
     }
@@ -122,6 +140,7 @@ export class BlockchainScannerService {
           provider: this.archiveProvider,
           bondingCurveContract: this.bondingCurveArchiveContract!,
           createPoolContract: this.createPoolArchiveContract!,
+          addPoolContract: this.addPoolArchiveContract!,
           isArchive: true,
         }
       }
@@ -131,6 +150,7 @@ export class BlockchainScannerService {
         provider: this.provider,
         bondingCurveContract: this.bondingCurveContract,
         createPoolContract: this.createPoolContract,
+        addPoolContract: this.addPoolContract,
         isArchive: false,
       }
     } catch (error) {
@@ -372,7 +392,7 @@ export class BlockchainScannerService {
 
     try {
       // Get appropriate provider for this block range
-      const { bondingCurveContract, createPoolContract, isArchive } =
+      const { bondingCurveContract, createPoolContract, addPoolContract, isArchive } =
         await this.getProviderForBlockRange(fromBlock, toBlock)
 
       if (isArchive) {
@@ -387,14 +407,19 @@ export class BlockchainScannerService {
       const poolFilter = createPoolContract.filters.NewPool()
       const poolEvents = await createPoolContract.queryFilter(poolFilter, fromBlock, toBlock)
 
+      // Fetch AddPool events
+      const addPoolFilter = addPoolContract.filters.AddPool()
+      const addPoolEvents = await addPoolContract.queryFilter(addPoolFilter, fromBlock, toBlock)
+
       // Process events
       await Promise.all([
         this.processTrades(tradeEvents.filter((e): e is ethers.EventLog => 'args' in e && !!e.args)),
-        this.processPools(poolEvents.filter((e): e is ethers.EventLog => 'args' in e && !!e.args))
+        this.processPools(poolEvents.filter((e): e is ethers.EventLog => 'args' in e && !!e.args)),
+        this.processAddPools(addPoolEvents.filter((e): e is ethers.EventLog => 'args' in e && !!e.args)),
       ])
 
       // Update statistics
-      const totalEvents = tradeEvents.length + poolEvents.length
+      const totalEvents = tradeEvents.length + poolEvents.length + addPoolEvents.length
       const blocksProcessed = toBlock - fromBlock + 1
 
       await ScannerState.query()
@@ -404,14 +429,17 @@ export class BlockchainScannerService {
         .increment('total_events_processed', totalEvents)
 
       const duration = Date.now() - startTime
-      logger.info(`Processed ${tradeEvents.length} trades and ${poolEvents.length} pools`, {
-        fromBlock,
-        toBlock,
-        usedArchive: isArchive,
-        totalEvents,
-        durationMs: duration,
-        blocksPerSecond: ((blocksProcessed / duration) * 1000).toFixed(2),
-      })
+      logger.info(
+        `Processed ${tradeEvents.length} trades, ${poolEvents.length} pools, ${addPoolEvents.length} addPools`,
+        {
+          fromBlock,
+          toBlock,
+          usedArchive: isArchive,
+          totalEvents,
+          durationMs: duration,
+          blocksPerSecond: ((blocksProcessed / duration) * 1000).toFixed(2),
+        }
+      )
     } catch (error) {
       const duration = Date.now() - startTime
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -536,6 +564,37 @@ export class BlockchainScannerService {
   }
 
   /**
+   * Process AddPool events — set mintable=2 on matching pools
+   */
+  private async processAddPools(events: ethers.EventLog[]): Promise<void> {
+    for (const event of events) {
+      try {
+        const poolId = Number(event.args?.[0])
+        if (!poolId && poolId !== 0) {
+          continue
+        }
+
+        const updated = await Pool.query()
+          .where('chain_id', this.config.chainId)
+          .where('pool_id', poolId)
+          .update({ mintable: 2 })
+
+        if (updated) {
+          logger.info(`Set mintable=2 for pool ${poolId} (AddPool event, block ${event.blockNumber})`)
+        } else {
+          logger.warn(`AddPool event for unknown pool_id=${poolId} (block ${event.blockNumber})`)
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        logger.error(
+          `❌ Error processing AddPool event [Block: ${event.blockNumber}]: ${errorMsg}`
+        )
+        throw error
+      }
+    }
+  }
+
+  /**
    * Process NewPool events
    */
   private async processPools(events: ethers.EventLog[]): Promise<void> {
@@ -624,6 +683,7 @@ export function createBscScanner(): BlockchainScannerService {
     archiveRpcUrl: env.get('BSC_ARCHIVE_RPC_URL'),
     bondingCurveAddress: env.get('BONDINGCURVE_ADDRESS_BSC'),
     createPoolAddress: env.get('CREATE_POOL_ADDRESS_BSC'),
+    addPoolAddress: env.get('ADD_POOL_ADDRESS_BSC'),
     startBlock: env.get('SCANNER_START_BLOCK') ? Number(env.get('SCANNER_START_BLOCK')) : undefined,
     blockConfirmations: Number(env.get('SCANNER_BLOCK_CONFIRMATIONS')),
     pollInterval: Number(env.get('SCANNER_POLL_INTERVAL')),

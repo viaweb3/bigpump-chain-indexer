@@ -33,3 +33,6 @@ logs
 pids
 *.pid
 *.seed
+
+# Claude Code / OMC
+.omc/

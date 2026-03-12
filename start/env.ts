@@ -38,6 +38,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   BSC_ARCHIVE_RPC_URL: Env.schema.string.optional({ format: 'url' }),
   CREATE_POOL_ADDRESS_BSC: Env.schema.string(),
   BONDINGCURVE_ADDRESS_BSC: Env.schema.string(),
+  ADD_POOL_ADDRESS_BSC: Env.schema.string(),
   SCANNER_START_BLOCK: Env.schema.number.optional(),
   SCANNER_BLOCK_CONFIRMATIONS: Env.schema.number.optional(),
   SCANNER_POLL_INTERVAL: Env.schema.number.optional(),
